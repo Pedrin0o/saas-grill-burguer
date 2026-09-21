@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   TOKENS — mesma paleta da landing page (ink escuro + dourado)
+   Cole isso logo depois dos imports do Tailwind no seu globals.css
+   ============================================================ */
+:root {
+  --ink: #0b0705;
+  --ink-soft: #17110c;
+  --ink-softer: #241a11;
+  --paper: #fbf7f0;
+  --paper-soft: #f2ece1;
+  --gold: #e8a86b;
+  --gold-deep: #c97b3d;
+  --text-on-dark: #d9cdbd;
+  --text-on-light: #3a2f24;
+  --text-h-light: #1c140c;
+  --success: #34d399;
+  --danger: #f87171;
+}
+/* ============================================================
+   FADE-IN escalonado — usado em listas que "aparecem" item por
+   item conforme os dados chegam (pedidos, produtos, etc).
+   Cole isso no final do seu globals.css
+   ============================================================ */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stagger-fade-in {
+  animation: fadeInUp 0.4s ease-out both;
+}

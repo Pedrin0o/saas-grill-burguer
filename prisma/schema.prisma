@@ -1,0 +1,128 @@
+// Schema inicial: cardápio + pedidos + estoque básico.
+// Depois dá pra expandir com financeiro completo, avaliações, etc.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum OrderStatus {
+  PENDENTE
+  PAGO
+  EM_PREPARO
+  PRONTO
+  ENTREGUE
+  CANCELADO
+}
+
+enum PaymentStatus {
+  PENDENTE
+  APROVADO
+  RECUSADO
+  ESTORNADO
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String
+  order     Int       @default(0)
+  products  Product[]
+  createdAt DateTime  @default(now())
+}
+
+model Product {
+  id          String              @id @default(cuid())
+  name        String
+  description String
+  priceCents  Int // preço em centavos, evita erro de arredondamento
+  imageUrl    String?
+  active      Boolean             @default(true)
+  stockQty    Int                 @default(0) // estoque simples por enquanto
+  category    Category            @relation(fields: [categoryId], references: [id])
+  categoryId  String
+  orderItems  OrderItem[]
+  ingredients ProductIngredient[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  customerName    String
+  customerPhone   String
+  customerAddress String?
+  items           OrderItem[]
+  totalCents      Int
+  status          OrderStatus   @default(PENDENTE)
+  paymentStatus   PaymentStatus @default(PENDENTE)
+  paymentId       String? // id retornado pelo Mercado Pago
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model OrderItem {
+  id                   String  @id @default(cuid())
+  order                Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId              String
+  product              Product @relation(fields: [productId], references: [id])
+  productId            String
+  quantity             Int
+  priceCents           Int // preço no momento da compra (não muda se o produto mudar depois)
+  removedIngredientIds Json?
+}
+
+enum ExpenseCategory {
+  FORNECEDORES
+  ALUGUEL
+  SALARIOS
+  CONTAS
+  MARKETING
+  IMPOSTOS
+  MANUTENCAO
+  OUTROS
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  description String
+  amountCents Int
+  category    ExpenseCategory
+  paid        Boolean         @default(true)
+  expenseDate DateTime        @default(now())
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+enum IngredientUnit {
+  UN
+  G
+  ML
+}
+
+model Ingredient {
+  id        String              @id @default(cuid())
+  name      String
+  quantity  Int                 @default(0)
+  unit      IngredientUnit      @default(UN)
+  costCents Int                 @default(0) // custo por unidade de medida (ex: por grama, por ml, por un)
+  active    Boolean             @default(true)
+  products  ProductIngredient[]
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+}
+
+model ProductIngredient {
+  id           String     @id @default(cuid())
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId    String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  ingredientId String
+  quantity     Int
+
+  @@unique([productId, ingredientId])
+}
