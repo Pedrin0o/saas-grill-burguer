@@ -1,5 +1,4 @@
-// Schema inicial: cardápio + pedidos + estoque básico.
-// Depois dá pra expandir com financeiro completo, avaliações, etc.
+// Schema: SaaS Grill Burguer (Multitenant)
 
 generator client {
   provider = "prisma-client-js"
@@ -27,10 +26,80 @@ enum PaymentStatus {
   ESTORNADO
 }
 
+enum SubscriptionStatus {
+  ACTIVE
+  PENDING
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+// ==========================================
+// DADOS DA EMPRESA (TENANT)
+// ==========================================
+model Store {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique // Ex: 'smashburger' para a URL do cardápio
+  phone     String?
+  ownerId   String   @unique // ID do usuário lá no Supabase Auth
+  
+  // Relações - Tudo que pertence a esta loja
+  categories  Category[]
+  products    Product[]
+  orders      Order[]
+  expenses    Expense[]
+  ingredients Ingredient[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// ASSINATURAS E PLANOS
+// ==========================================
+model Plan {
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  priceCents    Int
+  active        Boolean        @default(true)
+  subscriptions Subscription[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  userId             String             @unique // ID do dono da loja
+  planId             String
+  status             SubscriptionStatus @default(PENDING)
+  startedAt          DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  canceledAt         DateTime?
+  paymentProvider    String?
+  externalId         String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  plan Plan @relation(fields: [planId], references: [id])
+
+  @@index([planId])
+  @@index([status])
+}
+
+// ==========================================
+// OPERACIONAL DA LOJA
+// ==========================================
 model Category {
   id        String    @id @default(cuid())
   name      String
   order     Int       @default(0)
+  
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  
   products  Product[]
   createdAt DateTime  @default(now())
 }
@@ -39,14 +108,20 @@ model Product {
   id          String              @id @default(cuid())
   name        String
   description String
-  priceCents  Int // preço em centavos, evita erro de arredondamento
+  priceCents  Int
   imageUrl    String?
   active      Boolean             @default(true)
-  stockQty    Int                 @default(0) // estoque simples por enquanto
-  category    Category            @relation(fields: [categoryId], references: [id])
+  stockQty    Int                 @default(0)
+  
+  storeId     String
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  
   categoryId  String
+  category    Category            @relation(fields: [categoryId], references: [id])
+  
   orderItems  OrderItem[]
   ingredients ProductIngredient[]
+  
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 }
@@ -60,19 +135,23 @@ model Order {
   totalCents      Int
   status          OrderStatus   @default(PENDENTE)
   paymentStatus   PaymentStatus @default(PENDENTE)
-  paymentId       String? // id retornado pelo Mercado Pago
+  paymentId       String?
+
+  storeId         String
+  store           Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 }
 
 model OrderItem {
   id                   String  @id @default(cuid())
-  order                Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderId              String
-  product              Product @relation(fields: [productId], references: [id])
+  order                Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId            String
+  product              Product @relation(fields: [productId], references: [id])
   quantity             Int
-  priceCents           Int // preço no momento da compra (não muda se o produto mudar depois)
+  priceCents           Int
   removedIngredientIds Json?
 }
 
@@ -94,6 +173,10 @@ model Expense {
   category    ExpenseCategory
   paid        Boolean         @default(true)
   expenseDate DateTime        @default(now())
+  
+  storeId     String
+  store       Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 }
@@ -109,8 +192,12 @@ model Ingredient {
   name      String
   quantity  Int                 @default(0)
   unit      IngredientUnit      @default(UN)
-  costCents Int                 @default(0) // custo por unidade de medida (ex: por grama, por ml, por un)
+  costCents Int                 @default(0)
   active    Boolean             @default(true)
+  
+  storeId   String
+  store     Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
   products  ProductIngredient[]
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
@@ -118,10 +205,10 @@ model Ingredient {
 
 model ProductIngredient {
   id           String     @id @default(cuid())
-  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   productId    String
-  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
   quantity     Int
 
   @@unique([productId, ingredientId])
