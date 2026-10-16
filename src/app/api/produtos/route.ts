@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
 import { prisma } from "@/lib/prisma";
 
 type ProductIngredientInput = {
@@ -7,7 +8,25 @@ type ProductIngredientInput = {
 };
 
 export async function GET() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
+
+  const store = await prisma.store.findUnique({
+    where: { ownerId: user.id },
+  });
+
+  if (!store) {
+    return NextResponse.json({ error: "Loja não encontrada." }, { status: 404 });
+  }
+
   const products = await prisma.product.findMany({
+    where: { storeId: store.id },
     include: {
       category: true,
       ingredients: {
@@ -23,6 +42,23 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
+
+  const store = await prisma.store.findUnique({
+    where: { ownerId: user.id },
+  });
+
+  if (!store) {
+    return NextResponse.json({ error: "Loja não encontrada." }, { status: 404 });
+  }
+
   const body = await request.json();
 
   const {
@@ -97,6 +133,7 @@ export async function POST(request: Request) {
   if (ingredientIds.length > 0) {
     const existingIngredients = await prisma.ingredient.findMany({
       where: {
+        storeId: store.id,
         id: {
           in: ingredientIds,
         },
@@ -118,6 +155,7 @@ export async function POST(request: Request) {
 
   let category = await prisma.category.findFirst({
     where: {
+      storeId: store.id,
       name: {
         equals: categoryName,
         mode: "insensitive",
@@ -129,6 +167,7 @@ export async function POST(request: Request) {
     category = await prisma.category.create({
       data: {
         name: categoryName,
+        storeId: store.id,
       },
     });
   }
@@ -141,6 +180,7 @@ export async function POST(request: Request) {
       stockQty: stockQty ?? 0,
       active: active ?? true,
       categoryId: category.id,
+      storeId: store.id,
 
       ingredients: {
         create: normalizedIngredients.map((item) => ({

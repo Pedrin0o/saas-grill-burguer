@@ -1,9 +1,27 @@
 import { NextResponse } from "next/server";
-
+import { createClient } from "@/utils/supabase/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
+
+  const store = await prisma.store.findUnique({
+    where: { ownerId: user.id },
+  });
+
+  if (!store) {
+    return NextResponse.json({ error: "Loja não encontrada." }, { status: 404 });
+  }
+
   const ingredients = await prisma.ingredient.findMany({
+    where: { storeId: store.id },
     orderBy: [{ name: "asc" }],
   });
 
@@ -11,6 +29,23 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
+
+  const store = await prisma.store.findUnique({
+    where: { ownerId: user.id },
+  });
+
+  if (!store) {
+    return NextResponse.json({ error: "Loja não encontrada." }, { status: 404 });
+  }
+
   const body = await request.json();
 
   const { name, quantity, unit, active, costCents } = body;
@@ -43,6 +78,7 @@ export async function POST(request: Request) {
       unit,
       costCents: typeof costCents === "number" && costCents >= 0 ? costCents : 0,
       active: active ?? true,
+      storeId: store.id,
     },
   });
 

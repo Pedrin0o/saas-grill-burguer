@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/utils/supabase/server";
 import { prisma } from "@/lib/prisma";
 
 type SaleItemInput = {
@@ -8,7 +9,25 @@ type SaleItemInput = {
 };
 
 export async function GET() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Não autorizado." }, { status: 401 });
+  }
+
+  const store = await prisma.store.findUnique({
+    where: { ownerId: user.id },
+  });
+
+  if (!store) {
+    return NextResponse.json({ error: "Loja não encontrada." }, { status: 404 });
+  }
+
   const orders = await prisma.order.findMany({
+    where: { storeId: store.id },
     include: {
       items: {
         include: {
@@ -63,36 +82,35 @@ export async function POST(request: Request) {
     );
   }
 
-  // Junta produtos repetidos em uma única linha.
   // Junta produtos repetidos que possuem a mesma personalização.
-const groupedItems = new Map<
-  string,
-  {
-    productId: string;
-    quantity: number;
-    removedIngredientIds: string[];
+  const groupedItems = new Map<
+    string,
+    {
+      productId: string;
+      quantity: number;
+      removedIngredientIds: string[];
+    }
+  >();
+
+  for (const item of items) {
+    const removedIngredientIds = [
+      ...(item.removedIngredientIds ?? []),
+    ].sort();
+
+    const key = `${item.productId}:${removedIngredientIds.join(",")}`;
+
+    const existing = groupedItems.get(key);
+
+    if (existing) {
+      existing.quantity += item.quantity;
+    } else {
+      groupedItems.set(key, {
+        productId: item.productId,
+        quantity: item.quantity,
+        removedIngredientIds,
+      });
+    }
   }
->();
-
-for (const item of items) {
-  const removedIngredientIds = [
-    ...(item.removedIngredientIds ?? []),
-  ].sort();
-
-  const key = `${item.productId}:${removedIngredientIds.join(",")}`;
-
-  const existing = groupedItems.get(key);
-
-  if (existing) {
-    existing.quantity += item.quantity;
-  } else {
-    groupedItems.set(key, {
-      productId: item.productId,
-      quantity: item.quantity,
-      removedIngredientIds,
-    });
-  }
-}
 
   const normalizedItems = Array.from(groupedItems.values());
 
@@ -159,20 +177,19 @@ for (const item of items) {
           const removedIngredientIds = item.removedIngredientIds ?? [];
 
           for (const productIngredient of product.ingredients) {
-            if (  removedIngredientIds.includes( productIngredient.ingredientId) ) 
-              {
-                continue;
-              }
+            if (removedIngredientIds.includes(productIngredient.ingredientId)) {
+              continue;
+            }
 
-              const requiredQuantity = productIngredient.quantity * item.quantity;
+            const requiredQuantity = productIngredient.quantity * item.quantity;
 
-              if (!productIngredient.ingredient.active) {
-                  throw new Error( `O ingrediente "${productIngredient.ingredient.name}" está inativo.` );}
+            if (!productIngredient.ingredient.active) {
+              throw new Error(`O ingrediente "${productIngredient.ingredient.name}" está inativo.`);
+            }
 
-                if (productIngredient.ingredient.quantity < requiredQuantity ) 
-                  {
-                    throw new Error( `Estoque insuficiente de "${productIngredient.ingredient.name}" para ${product.name}.`);
-                  }
+            if (productIngredient.ingredient.quantity < requiredQuantity) {
+              throw new Error(`Estoque insuficiente de "${productIngredient.ingredient.name}" para ${product.name}.`);
+            }
           }
         }
 
@@ -212,47 +229,44 @@ for (const item of items) {
             continue;
           }
 
-          const removedIngredientIds =
-  item.removedIngredientIds ?? [];
+          const removedIngredientIds = item.removedIngredientIds ?? [];
 
-for (const productIngredient of product.ingredients) {
-  if (
-    removedIngredientIds.includes(
-      productIngredient.ingredientId
-    )
-  ) {
-    continue;
-  }
+          for (const productIngredient of product.ingredients) {
+            if (
+              removedIngredientIds.includes(
+                productIngredient.ingredientId
+              )
+            ) {
+              continue;
+            }
 
-  const requiredQuantity =
-    productIngredient.quantity *
-    item.quantity;
+            const requiredQuantity =
+              productIngredient.quantity *
+              item.quantity;
 
-  const updatedIngredient =
-    await tx.ingredient.updateMany({
-      where: {
-        id: productIngredient.ingredientId,
-        quantity: {
-          gte: requiredQuantity,
-        },
-        active: true,
-      },
-      data: {
-        quantity: {
-          decrement: requiredQuantity,
-        },
-      },
-    });
+            const updatedIngredient =
+              await tx.ingredient.updateMany({
+                where: {
+                  id: productIngredient.ingredientId,
+                  quantity: {
+                    gte: requiredQuantity,
+                  },
+                  active: true,
+                },
+                data: {
+                  quantity: {
+                    decrement: requiredQuantity,
+                  },
+                },
+              });
 
-  if (updatedIngredient.count !== 1) {
-    throw new Error(
-      `Estoque insuficiente de "${productIngredient.ingredient.name}".`
-    );
-  }
-    
-    }
-      }
-
+            if (updatedIngredient.count !== 1) {
+              throw new Error(
+                `Estoque insuficiente de "${productIngredient.ingredient.name}".`
+              );
+            }
+          }
+        }
 
         const orderItemsData = normalizedItems.map(
           (item) => {
@@ -265,7 +279,7 @@ for (const productIngredient of product.ingredients) {
               quantity: item.quantity,
               priceCents: product.priceCents,
               removedIngredientIds:
-              item.removedIngredientIds ?? [],
+                item.removedIngredientIds ?? [],
             };
           }
         );
@@ -285,6 +299,7 @@ for (const productIngredient of product.ingredients) {
             totalCents,
             status: "PAGO",
             paymentStatus: "APROVADO",
+            storeId: products[0].storeId, // <--- Associa a loja do produto ao pedido
             items: {
               create: orderItemsData,
             },
