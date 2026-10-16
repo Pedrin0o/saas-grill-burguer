@@ -78,7 +78,7 @@ export async function POST(request: Request) {
       unit,
       costCents: typeof costCents === "number" && costCents >= 0 ? costCents : 0,
       active: active ?? true,
-      storeId: store.id,
+      storeId: store.id, // <--- Aqui está o vínculo obrigatório!
     },
   });
 
